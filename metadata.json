@@ -1,0 +1,6 @@
+{
+  "name": "ResQRoute",
+  "description": "Intelligent disaster evacuation routing, Red Zone hazard identification, and carrying capacity assessment platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

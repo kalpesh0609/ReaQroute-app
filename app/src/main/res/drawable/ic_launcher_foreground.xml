@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center group within 66dp safe zone (bounds: 21 to 87) -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54">
+        <!-- Outer Safety Shield -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,23 C68,23 78,28 78,28 C78,54 68,73 54,83 C40,73 30,54 30,28 C30,28 40,23 54,23 Z" />
+        <!-- Inner Shield Accent -->
+        <path
+            android:fillColor="#005EB2"
+            android:pathData="M54,27 C65,27 74,31.5 74,31.5 C74,53 65,69 54,78 C43,69 34,53 34,31.5 C34,31.5 43,27 54,27 Z" />
+        <!-- Rescue Route Ribbon (Ridge Path) -->
+        <path
+            android:pathData="M43,64 C47,56 50,50 56,47 C61,45 64,40 64,36"
+            android:strokeWidth="4"
+            android:strokeColor="#FFB248"
+            android:strokeLineCap="round" />
+        <!-- Compass North / Forward Arrow -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,34 L58,45 L54,42 L50,45 Z" />
+        <!-- Safe Haven Checkpoint Pin -->
+        <path
+            android:fillColor="#FFB248"
+            android:pathData="M64,36 A3,3 0 1,0 64,30 A3,3 0 1,0 64,36 Z" />
+    </group>
+</vector>
