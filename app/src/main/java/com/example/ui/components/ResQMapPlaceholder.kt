@@ -97,6 +97,7 @@ import com.example.data.model.MapMarker
 import com.example.data.model.MapUiState
 import com.example.data.model.MarkerType
 import com.example.data.model.OsrmRouteData
+import com.example.ui.map.OsmMapRenderer
 import com.example.ui.theme.ResQAmberAccent
 import com.example.ui.theme.ResQAmberWarning
 import com.example.ui.theme.ResQBlueContainer
@@ -136,6 +137,7 @@ fun ResQMapPlaceholder(
     onInspectApi: (() -> Unit)? = null
 ) {
     var zoomLevel by remember { mutableFloatStateOf(uiState.zoomLevel) }
+    var recenterTrigger by remember { mutableStateOf(0L) }
     var showLayersDialog by remember { mutableStateOf(false) }
     var showApiInspectorDialog by remember { mutableStateOf(false) }
     var selectedEntityTitle by remember { mutableStateOf<String?>(null) }
@@ -145,6 +147,7 @@ fun ResQMapPlaceholder(
     var showHazardLayer by remember { mutableStateOf(uiState.isFloodLayerVisible) }
     var showReportsLayer by remember { mutableStateOf(uiState.isReportsLayerVisible) }
     var showContoursLayer by remember { mutableStateOf(uiState.isElevationContoursVisible) }
+    var showFacilitiesLayer by remember { mutableStateOf(uiState.isFacilitiesLayerVisible) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "mapPulse")
     val pulseRadius by infiniteTransition.animateFloat(
@@ -178,85 +181,35 @@ fun ResQMapPlaceholder(
             .testTag("resq_map_placeholder")
     ) {
         // =========================================================================
-        // REAL MAP API ATTACHMENT POINT / FALLBACK SIMULATOR
-        // If a real SDK is connected (e.g. Google Maps or MapLibre), it renders here.
-        // Otherwise, it renders our deterministic GIS vector layer using OSRM geometry.
+        // REAL OPENSTREETMAP NATIVE RENDERER (Powered by osmdroid & OSRM)
+        // Renders real OpenStreetMap roads, polylines, flood hazards, and safe haven pins
         // =========================================================================
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        // Calculate click proximity to markers
-                        val w = size.width.toFloat()
-                        val h = size.height.toFloat()
-
-                        // Check hazard pin proximity (approx 28% width, 68% height)
-                        val hazardPin = Offset(w * 0.32f, h * 0.68f)
-                        val shelterPin = Offset(w * 0.82f, h * 0.22f)
-                        val reportPin = Offset(w * 0.44f, h * 0.58f)
-                        val userPin = Offset(w * 0.16f, h * 0.82f)
-
-                        fun dist(a: Offset, b: Offset) = kotlin.math.hypot(a.x - b.x, a.y - b.y)
-
-                        when {
-                            dist(offset, hazardPin) < 60f -> {
-                                selectedEntityTitle = "Hazard: Culvert Node #104"
-                                selectedEntityDetails = "Water Depth: 48cm • Canal Road Impassable • 14 Confirmations"
-                                uiState.hazards.firstOrNull()?.let { onHazardSelected?.invoke(it) }
-                            }
-                            dist(offset, shelterPin) < 60f -> {
-                                selectedEntityTitle = "Safe Haven: St. Jude"
-                                selectedEntityDetails = "Elevation: +32m • 55 Spaces Available • Generator Active"
-                            }
-                            dist(offset, reportPin) < 60f -> {
-                                selectedEntityTitle = "Citizen Report #104"
-                                selectedEntityDetails = "Culvert Overtopping verified by 87% neighborhood consensus"
-                                uiState.reports.firstOrNull()?.let { onReportSelected?.invoke(it) }
-                            }
-                            dist(offset, userPin) < 60f -> {
-                                selectedEntityTitle = "Your GPS Location"
-                                selectedEntityDetails = "Sector 17 Low Basin • Evacuation Alert Active"
-                            }
-                            else -> {
-                                selectedEntityTitle = null
-                                selectedEntityDetails = null
-                            }
-                        }
-                    }
-                }
-        ) {
-            val w = size.width
-            val h = size.height
-
-            // 1. Grid & OpenStreetMap-Style Landuse Background
-            drawMapBase(w, h, showContoursLayer)
-
-            // 2. Hazard Layer: Flood Inundation Polygon (Sector 17 Basin)
-            if (showHazardLayer) {
-                drawFloodHazardBasin(w, h)
+        OsmMapRenderer(
+            uiState = uiState.copy(
+                zoomLevel = zoomLevel,
+                isFloodLayerVisible = showHazardLayer,
+                isReportsLayerVisible = showReportsLayer,
+                isElevationContoursVisible = showContoursLayer,
+                isFacilitiesLayerVisible = showFacilitiesLayer
+            ),
+            recenterTrigger = recenterTrigger,
+            modifier = Modifier.fillMaxSize(),
+            onMarkerClicked = { marker ->
+                selectedEntityTitle = marker.title
+                selectedEntityDetails = marker.snippet
+                onMarkerSelected?.invoke(marker)
+            },
+            onHazardClicked = { hazard ->
+                selectedEntityTitle = "Hazard: ${hazard.title}"
+                selectedEntityDetails = "Water Depth: ${hazard.waterDepthCm}cm • ${hazard.severity} • Avoid Basin"
+                onHazardSelected?.invoke(hazard)
+            },
+            onReportClicked = { report ->
+                selectedEntityTitle = "Citizen Incident ${report.reportNumber}"
+                selectedEntityDetails = "${report.title} verified by ${report.confirmedCount} neighbors (${report.verificationPct}% consensus)"
+                onReportSelected?.invoke(report)
             }
-
-            // 3. OSRM Direct Unsafe Corridor (Canal Road - Red Dashed Line)
-            drawUnsafeCanalRoute(w, h)
-
-            // 4. OSRM Recommended Safe Ridge Corridor (+32m High Ground - Blue Solid Line with Safety Buffer)
-            drawSafeRidgeRoute(w, h, uiState.activeRoute)
-
-            // 5. Citizen Reports Overlay
-            if (showReportsLayer) {
-                drawCitizenReports(w, h, uiState.reports)
-            }
-
-            // 6. Hazard Pin Marker (Culvert Node #104)
-            drawHazardPin(w, h)
-
-            // 7. Shelter Pin Marker (St. Jude Safe Haven)
-            drawShelterPin(w, h)
-
-            // 8. User GPS Pin (Current citizen position with animated beacon)
-            drawUserGpsPin(w, h, pulseRadius, pulseAlpha)
-        }
+        )
 
         // =========================================================================
         // TOP OVERLAYS: Map Mode Badge & Diagnostic Connector
@@ -268,10 +221,10 @@ fun ResQMapPlaceholder(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            // Map status & OSRM indicator
+            // Map status & OSRM indicator with REAL Online/Offline reflection
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = Color.Black.copy(alpha = 0.82f),
+                color = Color.Black.copy(alpha = 0.85f),
                 shadowElevation = 4.dp,
                 modifier = Modifier.clickable { showApiInspectorDialog = true }
             ) {
@@ -283,22 +236,22 @@ fun ResQMapPlaceholder(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF4ADE80))
+                            .background(if (uiState.isOnline) Color(0xFF4ADE80) else Color(0xFFFBBF24))
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Column {
                         Text(
-                            text = "OSRM GRAPH: READY",
+                            text = if (uiState.isOnline) "OSM + OSRM: ONLINE" else "OSM + OSRM: OFFLINE",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.White,
                             letterSpacing = 0.6.sp
                         )
                         Text(
-                            text = "Map SDK Connector Active",
+                            text = if (uiState.isOnline) "OpenStreetMap Live Tiles" else "Cached Local Tiles & Corridor",
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFFD1D5DB)
+                            color = if (uiState.isOnline) Color(0xFFD1D5DB) else Color(0xFFFDE68A)
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
@@ -429,8 +382,9 @@ fun ResQMapPlaceholder(
                 color = ResQBluePrimary,
                 shadowElevation = 3.dp,
                 modifier = Modifier.clickable {
+                    recenterTrigger = System.currentTimeMillis()
                     selectedEntityTitle = "Centered on Your GPS"
-                    selectedEntityDetails = "Sector 17 Low Basin • Altitude: +12m"
+                    selectedEntityDetails = "${uiState.userLocation.toFormattedString()} • Altitude: +${uiState.userLocation.altitudeM.toInt()}m"
                 }
             ) {
                 Icon(
@@ -527,6 +481,15 @@ fun ResQMapPlaceholder(
                         label = { Text("Citizen Reports & Neighbor Quorums") },
                         leadingIcon = {
                             Icon(Icons.Default.Place, contentDescription = null, tint = ResQAmberWarning)
+                        }
+                    )
+
+                    FilterChip(
+                        selected = showFacilitiesLayer,
+                        onClick = { showFacilitiesLayer = !showFacilitiesLayer },
+                        label = { Text("Hospitals & Critical Emergency Posts") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Place, contentDescription = null, tint = ResQBluePrimary)
                         }
                     )
 

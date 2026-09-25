@@ -60,6 +60,7 @@ import com.example.ui.theme.ResQDangerRed
 @Composable
 fun ResQTopBar(
     operatingMode: OperatingMode,
+    isOnline: Boolean = true,
     onToggleOperatingMode: () -> Unit,
     onOpenSmsGateway: () -> Unit,
     onOpenAuthorityConsole: () -> Unit,
@@ -119,6 +120,33 @@ fun ResQTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // Online / Offline State Badge
+                Surface(
+                    color = if (isOnline) Color(0xFFE8F5E9) else Color(0xFFFEF3C7),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.testTag("connectivity_status_badge")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isOnline) Color(0xFF16A34A) else Color(0xFFD97706))
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isOnline) "ONLINE" else "OFFLINE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (isOnline) Color(0xFF16A34A) else Color(0xFFD97706),
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+
                 // Interactive Mode Selector Badge
                 val (modeBg, modeFg, modeText) = when (operatingMode) {
                     OperatingMode.PEACETIME -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "PEACETIME")

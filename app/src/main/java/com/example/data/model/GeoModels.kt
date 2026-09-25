@@ -43,7 +43,11 @@ enum class MarkerType {
     HAZARD_IMPASSABLE,
     CITIZEN_REPORT,
     SAFE_SHELTER,
-    WAYPOINT
+    WAYPOINT,
+    HOSPITAL,
+    FIRE_STATION,
+    ROAD_CLOSURE,
+    AUTHORITY_DETOUR
 }
 
 /**
@@ -160,17 +164,24 @@ data class OsrmRouteData(
  * to custom Compose Canvas renderers or to native Google Maps / MapLibre Android SDKs.
  */
 data class MapUiState(
-    val userLocation: GeoPoint = GeoPoint(19.0545, 72.8285, 12.0, "Current Location"),
-    val targetShelter: GeoPoint = GeoPoint(19.0665, 72.8365, 32.0, "St. Jude Safe Haven"),
+    val userLocation: GeoPoint = GeoPoint(19.0760, 72.8777, 14.0, "Mumbai Control Zone"),
+    val targetShelter: GeoPoint = GeoPoint(19.0880, 72.8890, 32.0, "St. Jude Safe Haven"),
     val activeRoute: OsrmRouteData? = null,
     val alternativeRoute: OsrmRouteData? = null,
     val hazards: List<HazardZoneOverlay> = emptyList(),
     val markers: List<MapMarker> = emptyList(),
     val reports: List<CitizenReportOverlay> = emptyList(),
-    val isRealMapApiConnected: Boolean = false,
+    val criticalFacilities: List<MapMarker> = emptyList(),
+    val roadClosures: List<MapMarker> = emptyList(),
+    val isAuthorityDetourActive: Boolean = false,
+    val authorityDetourDecree: String = "",
+    val isOnline: Boolean = true,
+    val isOfflineFallback: Boolean = false,
+    val isRealMapApiConnected: Boolean = true,
     val mapProviderName: String = "OSRM + OpenStreetMap GIS Layer",
-    val zoomLevel: Float = 14.5f,
+    val zoomLevel: Float = 13.0f,
     val isFloodLayerVisible: Boolean = true,
     val isElevationContoursVisible: Boolean = true,
-    val isReportsLayerVisible: Boolean = true
+    val isReportsLayerVisible: Boolean = true,
+    val isFacilitiesLayerVisible: Boolean = true
 )

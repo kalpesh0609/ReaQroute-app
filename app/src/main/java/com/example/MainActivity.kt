@@ -20,11 +20,14 @@
 
 package com.example
 
+import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,20 +36,25 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.example.data.local.ResQRouteDatabase
 import com.example.data.model.ActiveScreen
 import com.example.data.model.MobileTab
 import com.example.data.model.OperatingMode
 import com.example.data.repository.ResQRouteRepository
+import com.example.service.LocationTrackingService
+import com.example.service.NetworkMonitor
 import com.example.ui.components.ResQBottomNav
 import com.example.ui.components.ResQTopBar
 import com.example.ui.screens.AuthorityConsoleScreen
@@ -60,6 +68,8 @@ import com.example.ui.screens.SafeHavenDossierScreen
 import com.example.ui.screens.SmsGatewayScreen
 import com.example.ui.theme.ResQRouteTheme
 import com.example.ui.viewmodel.ResQRouteViewModel
+import org.osmdroid.config.Configuration
+import java.io.File
 
 /**
  * Main application Activity. Bootstraps the application lifecycle and sets the Compose content root.
@@ -69,6 +79,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Enables edge-to-edge system insets for modern Android display compliance
         enableEdgeToEdge()
+
+        // Initialize osmdroid configuration before any map view inflation
+        try {
+            val prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+            Configuration.getInstance().load(this, prefs)
+            Configuration.getInstance().userAgentValue = "ResQRoute/1.0 (Android; disaster evacuation navigation; com.aistudio.resqroute.safe)"
+            val basePath = File(cacheDir, "osmdroid")
+            val tilePath = File(basePath, "tiles")
+            basePath.mkdirs()
+            tilePath.mkdirs()
+            Configuration.getInstance().osmdroidBasePath = basePath
+            Configuration.getInstance().osmdroidTileCache = tilePath
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to initialize osmdroid config in onCreate", e)
+        }
 
         // Initialize local SQLite Room database and single-source-of-truth repository
         val database = ResQRouteDatabase.getInstance(applicationContext)
@@ -106,9 +131,73 @@ fun ResQRouteApp(viewModel: ResQRouteViewModel) {
     val routeEvaluation by viewModel.routeEvaluation.collectAsState()
     val mapUiState by viewModel.mapUiState.collectAsState()
     val toastMessage by viewModel.toastMessage.collectAsState()
+    val isOnline by viewModel.isOnline.collectAsState()
 
     // Host state for displaying transient snackbar notifications
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Core Location Services Tracking Engine
+    val context = LocalContext.current
+    val locationService = remember { LocationTrackingService(context) }
+    val networkMonitor = remember { NetworkMonitor(context) }
+
+    // Synchronize network state
+    LaunchedEffect(networkMonitor) {
+        networkMonitor.isOnline.collect { online ->
+            viewModel.setNetworkStatus(online)
+        }
+    }
+
+    DisposableEffect(networkMonitor) {
+        onDispose {
+            networkMonitor.destroy()
+        }
+    }
+
+    // Runtime Permission Launcher for Location Services
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+        if (fineGranted || coarseGranted) {
+            locationService.startTracking()
+            viewModel.showToast("GPS Evacuation Telemetry Activated ✓")
+        }
+    }
+
+    // Launch location service lifecycle
+    LaunchedEffect(Unit) {
+        if (locationService.hasLocationPermission()) {
+            locationService.startTracking()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
+
+    DisposableEffect(locationService) {
+        onDispose {
+            locationService.stopTracking()
+        }
+    }
+
+    // Propagate live GPS fixes into the central repository and ViewModel
+    LaunchedEffect(locationService) {
+        kotlinx.coroutines.coroutineScope {
+            launch {
+                locationService.currentLocation.collect { geo ->
+                    viewModel.updateUserLocation(geo, locationService.gpsAccuracyMeters.value)
+                }
+            }
+            launch {
+                locationService.isTracking.collect { active ->
+                    viewModel.setGpsTelemetry(active, locationService.gpsAccuracyMeters.value)
+                }
+            }
+        }
+    }
 
     // Display transient toast messages
     LaunchedEffect(toastMessage) {
@@ -150,6 +239,7 @@ fun ResQRouteApp(viewModel: ResQRouteViewModel) {
             if (showTopAndBottomBars) {
                 ResQTopBar(
                     operatingMode = operatingMode,
+                    isOnline = isOnline,
                     onToggleOperatingMode = {
                         val nextMode = when (operatingMode) {
                             OperatingMode.PEACETIME -> OperatingMode.DRILL
@@ -248,7 +338,8 @@ fun ResQRouteApp(viewModel: ResQRouteViewModel) {
 
                 ActiveScreen.SmsGateway -> {
                     SmsGatewayScreen(
-                        onBack = { viewModel.navigateTo(ActiveScreen.Radar) }
+                        onBack = { viewModel.navigateTo(ActiveScreen.Radar) },
+                        onIngestBroadcast = { payload -> viewModel.ingestSmsBroadcast(payload) }
                     )
                 }
 

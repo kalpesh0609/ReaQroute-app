@@ -4,11 +4,13 @@
  *
  * PURPOSE & AIM:
  * Custom animated graphics HUD showing live GPS pulse tracking, dynamic corridor direction arrows,
- * and high-contrast night/storm guidance cues for active evacuation.
+ * real-time user trajectory progression along the safe elevation spine, and high-contrast
+ * night/storm guidance cues for active evacuation.
  *
  * LINKINGS & CONNECTIONS:
  * - Composable: [LiveGuidanceCanvas].
- * - Consumed By: [LiveGuidanceScreen] as an animated navigation background visualizer.
+ * - Consumed By: [LiveGuidanceScreen] as an interactive animated navigation visualizer.
+ * - Reactive Inputs: [progressFraction] (0.0 to 1.0 along the route), [headingDegrees], [hazardNearby].
  */
 
 package com.example.ui.components
@@ -33,17 +35,27 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import com.example.ui.theme.ResQAmberAccent
+import com.example.ui.theme.ResQAmberContainer
 import com.example.ui.theme.ResQAmberWarning
 import com.example.ui.theme.ResQBlueContainer
 import com.example.ui.theme.ResQBluePrimary
 import com.example.ui.theme.ResQDangerRed
+import com.example.ui.theme.ResQSafeGreen
 
 /**
- * Animated guidance HUD displaying pulsing user GPS location and forward evacuation trajectory.
+ * Animated guidance HUD displaying pulsing user GPS location advancing along the forward evacuation corridor.
+ *
+ * @param progressFraction Float between 0.0f (start) and 1.0f (arrived at safe haven).
+ * @param headingDegrees Current compass orientation.
+ * @param hazardNearby Flag indicating proximity to active water hazard.
  */
 @Composable
 fun LiveGuidanceCanvas(
+    progressFraction: Float = 0f,
+    headingDegrees: Float = 24f,
+    hazardNearby: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Pulse animation representing active GPS positioning
@@ -86,17 +98,17 @@ fun LiveGuidanceCanvas(
                 )
             }
 
-            // 2. Safe Evacuation Corridor Road Path
+            // 2. Safe Evacuation Corridor Road Path (Elevated Ridge Spine)
             val roadPath = Path().apply {
-                moveTo(w * 0.5f, h)
-                cubicTo(w * 0.5f, h * 0.7f, w * 0.42f, h * 0.45f, w * 0.65f, h * 0.15f)
+                moveTo(w * 0.5f, h * 0.88f)
+                cubicTo(w * 0.48f, h * 0.68f, w * 0.40f, h * 0.42f, w * 0.65f, h * 0.16f)
             }
 
             // Outer road buffer
             drawPath(
                 path = roadPath,
-                color = ResQBlueContainer.copy(alpha = 0.6f),
-                style = Stroke(width = 36f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                color = if (hazardNearby) ResQAmberContainer.copy(alpha = 0.7f) else ResQBlueContainer.copy(alpha = 0.7f),
+                style = Stroke(width = 44f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
             // Inner directional spine
@@ -110,43 +122,90 @@ fun LiveGuidanceCanvas(
                 )
             )
 
-            // 3. User GPS Node with Real-time Animation Pulse
-            val userPos = Offset(w * 0.5f, h * 0.8f)
+            // Hazard warning zone alert on map if nearby
+            if (hazardNearby) {
+                drawCircle(
+                    color = ResQDangerRed.copy(alpha = 0.25f),
+                    radius = 80f,
+                    center = Offset(w * 0.25f, h * 0.55f)
+                )
+                drawCircle(
+                    color = ResQDangerRed,
+                    radius = 12f,
+                    center = Offset(w * 0.25f, h * 0.55f)
+                )
+            }
+
+            // 3. Waypoint Checkpoints
+            val waypoints = listOf(
+                Offset(w * 0.48f, h * 0.68f),
+                Offset(w * 0.42f, h * 0.45f),
+                Offset(w * 0.54f, h * 0.30f)
+            )
+            waypoints.forEach { wp ->
+                drawCircle(color = ResQAmberAccent, radius = 7f, center = wp)
+            }
+
+            // 4. Destination Safe Haven Beacon (St. Jude Sanctuary)
+            val destPos = Offset(w * 0.65f, h * 0.16f)
             drawCircle(
-                color = ResQBluePrimary.copy(alpha = pulseAlpha),
+                color = ResQSafeGreen,
+                radius = 18f,
+                center = destPos
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 7f,
+                center = destPos
+            )
+
+            // 5. User GPS Position interpolated along the trajectory
+            val clampedFraction = progressFraction.coerceIn(0f, 1f)
+            // Interpolate user position along the curve
+            val startY = h * 0.88f
+            val endY = h * 0.16f
+            val curY = startY + (endY - startY) * clampedFraction
+
+            // approximate curved X based on progress
+            val curX = when {
+                clampedFraction < 0.35f -> w * (0.50f - (clampedFraction / 0.35f) * 0.08f)
+                clampedFraction < 0.70f -> {
+                    val localF = (clampedFraction - 0.35f) / 0.35f
+                    w * (0.42f + localF * 0.12f)
+                }
+                else -> {
+                    val localF = (clampedFraction - 0.70f) / 0.30f
+                    w * (0.54f + localF * 0.11f)
+                }
+            }
+            val userPos = Offset(curX, curY)
+
+            // Pulsing beacon
+            drawCircle(
+                color = (if (clampedFraction >= 0.95f) ResQSafeGreen else ResQBluePrimary).copy(alpha = pulseAlpha),
                 radius = pulseRadius,
                 center = userPos
             )
-            drawCircle(
-                color = ResQBluePrimary,
-                radius = 12f,
-                center = userPos
-            )
+
+            // Bearing orientation pointer
+            rotate(degrees = headingDegrees, pivot = userPos) {
+                val arrowPath = Path().apply {
+                    moveTo(userPos.x, userPos.y - 18f)
+                    lineTo(userPos.x + 10f, userPos.y + 12f)
+                    lineTo(userPos.x, userPos.y + 6f)
+                    lineTo(userPos.x - 10f, userPos.y + 12f)
+                    close()
+                }
+                drawPath(
+                    path = arrowPath,
+                    color = if (clampedFraction >= 0.95f) ResQSafeGreen else ResQBluePrimary
+                )
+            }
+
             drawCircle(
                 color = Color.White,
                 radius = 5f,
                 center = userPos
-            )
-
-            // 4. Next Maneuver Turning Waypoint (+32m Ridge Entry)
-            val turnWaypoint = Offset(w * 0.45f, h * 0.45f)
-            drawCircle(
-                color = ResQAmberAccent,
-                radius = 9f,
-                center = turnWaypoint
-            )
-
-            // 5. Destination Beacon (St. Jude Sanctuary)
-            val destPos = Offset(w * 0.65f, h * 0.15f)
-            drawCircle(
-                color = Color(0xFF059669),
-                radius = 16f,
-                center = destPos
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 6f,
-                center = destPos
             )
         }
     }

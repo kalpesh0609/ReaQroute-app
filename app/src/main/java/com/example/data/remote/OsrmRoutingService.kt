@@ -31,19 +31,24 @@ import java.util.concurrent.TimeUnit
 /**
  * Service class handling HTTP requests to the OSRM routing daemon and parsing GeoJSON coordinates.
  *
- * @param okHttpClient HTTP client configured with aggressive 5-second timeouts for disaster resilience.
+ * @param okHttpClient HTTP client configured with aggressive 3-second timeouts for instant disaster fallback.
  */
 class OsrmRoutingService(
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
         .build()
 ) {
     companion object {
         private const val TAG = "OsrmRoutingService"
-        // Standard OpenStreetMap OSRM public demonstration router
-        private const val OSRM_BASE_URL = "https://router.project-osrm.org/route/v1"
+        // Standard OpenStreetMap OSRM public demonstration router (customizable for private/disaster servers)
+        var OSRM_BASE_URL = "https://router.project-osrm.org/route/v1"
     }
+
+    // In-memory cache for evacuation routes
+    private var cachedOrigin: GeoPoint? = null
+    private var cachedShelter: GeoPoint? = null
+    private var cachedResult: Pair<OsrmRouteData, OsrmRouteData>? = null
 
     /**
      * Queries OSRM to generate both the recommended safe ridge route and the direct unsafe canal route.
@@ -62,6 +67,17 @@ class OsrmRoutingService(
         shelter: GeoPoint = GeoPoint(19.0665, 72.8365, 32.0, "St. Jude Safe Haven"),
         hazardNode: GeoPoint = GeoPoint(19.0578, 72.8305, 2.0, "Culvert Node #104")
     ): Pair<OsrmRouteData, OsrmRouteData> = withContext(Dispatchers.IO) {
+        val lastOrigin = cachedOrigin
+        val lastShelter = cachedShelter
+        val existing = cachedResult
+        if (existing != null && lastOrigin != null && lastShelter != null) {
+            val distOrigin = Math.hypot(lastOrigin.latitude - origin.latitude, lastOrigin.longitude - origin.longitude)
+            val distShelter = Math.hypot(lastShelter.latitude - shelter.latitude, lastShelter.longitude - shelter.longitude)
+            if (distOrigin < 0.0004 && distShelter < 0.0004) {
+                // Return cached routes immediately to avoid network delays
+                return@withContext existing
+            }
+        }
         try {
             // Attempt to query live OSRM endpoint for Safe Ridge Route (routed via elevated waypoint)
             val ridgeWaypoint = GeoPoint(19.0610, 72.8340, 32.0, "Ridge Road Spine")
@@ -84,11 +100,19 @@ class OsrmRoutingService(
                 avoidedHazards = 0
             )
 
-            Pair(liveSafeRoute, liveDirectRoute)
+            val result = Pair(liveSafeRoute, liveDirectRoute)
+            cachedOrigin = origin
+            cachedShelter = shelter
+            cachedResult = result
+            result
         } catch (e: Exception) {
             // Disaster offline fallback mode
             Log.w(TAG, "OSRM remote request failed or offline (${e.message}). Engaging cached OSRM disaster geometry.", e)
-            Pair(createFallbackSafeRidgeRoute(), createFallbackUnsafeRoute())
+            val fallback = Pair(createFallbackSafeRidgeRoute(), createFallbackUnsafeRoute())
+            cachedOrigin = origin
+            cachedShelter = shelter
+            cachedResult = fallback
+            fallback
         }
     }
 
@@ -105,7 +129,7 @@ class OsrmRoutingService(
     ): OsrmRouteData {
         // Format coordinates as longitude,latitude;longitude,latitude...
         val coordsStr = points.joinToString(";") { "${it.longitude},${it.latitude}" }
-        val url = "$OSRM_BASE_URL/$profile/$coordsStr?overview=full&geometries=geojson&steps=true"
+        val url = "$OSRM_BASE_URL/$profile/$coordsStr?overview=full&geometries=geojson&steps=true&alternatives=true"
 
         val request = Request.Builder()
             .url(url)

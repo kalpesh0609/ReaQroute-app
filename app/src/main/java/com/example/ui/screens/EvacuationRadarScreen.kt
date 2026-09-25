@@ -49,6 +49,8 @@ import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Bed
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.EmergencyShare
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -83,6 +85,7 @@ import com.example.ui.theme.ResQBlueContainer
 import com.example.ui.theme.ResQBluePrimary
 import com.example.ui.theme.ResQDangerContainer
 import com.example.ui.theme.ResQDangerRed
+import com.example.ui.theme.ResQSafeGreen
 
 @Composable
 fun EvacuationRadarScreen(
@@ -305,37 +308,71 @@ fun EvacuationRadarScreen(
                         .fillMaxWidth()
                         .padding(top = 8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.AltRoute,
-                                contentDescription = null,
-                                tint = ResQBluePrimary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "OSRM Routing • 2.6 km • 14 mins walk",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A)
-                            )
+                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AltRoute,
+                                    contentDescription = null,
+                                    tint = ResQBluePrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "OSRM Routing • 2.6 km • 14 mins walk",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFDCFCE7)
+                            ) {
+                                Text(
+                                    text = "2 Hazards Avoided",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF166534),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFDCFCE7)
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Live GPS Telemetry Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.GpsFixed,
+                                    contentDescription = "GPS Lock",
+                                    tint = ResQSafeGreen,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "GPS Lock: ${mapUiState.userLocation.toFormattedString()}",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF334155),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
                             Text(
-                                text = "2 Hazards Avoided",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFF166534),
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                text = "±4m precision",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ResQSafeGreen
                             )
                         }
                     }

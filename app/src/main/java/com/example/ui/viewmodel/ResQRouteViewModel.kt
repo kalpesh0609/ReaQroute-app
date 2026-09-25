@@ -100,6 +100,43 @@ class ResQRouteViewModel(
     private val _compassHeading = MutableStateFlow(24f)
     val compassHeading: StateFlow<Float> = _compassHeading.asStateFlow()
 
+    /** Live GPS coordinate telemetry from LocationTrackingService */
+    val userLocation: StateFlow<com.example.data.model.GeoPoint> = repository.userLocation
+
+    /** GPS Lock and Precision Status */
+    private val _isGpsActive = MutableStateFlow(true)
+    val isGpsActive: StateFlow<Boolean> = _isGpsActive.asStateFlow()
+
+    private val _gpsAccuracyMeters = MutableStateFlow<Float?>(4.0f)
+    val gpsAccuracyMeters: StateFlow<Float?> = _gpsAccuracyMeters.asStateFlow()
+
+    /** Online/Offline state monitor */
+    val isOnline: StateFlow<Boolean> = repository.isOnline
+
+    /**
+     * Updates network status (Online vs Offline Zero-Internet mode).
+     */
+    fun setNetworkStatus(online: Boolean) {
+        repository.setNetworkStatus(online)
+    }
+
+    /**
+     * Updates live user GPS position and recalculates corridor distances.
+     */
+    fun updateUserLocation(point: com.example.data.model.GeoPoint, accuracy: Float? = null) {
+        repository.updateUserLocation(point)
+        _gpsAccuracyMeters.value = accuracy
+        _isGpsActive.value = true
+    }
+
+    /**
+     * Updates active GPS hardware lock state.
+     */
+    fun setGpsTelemetry(active: Boolean, accuracy: Float?) {
+        _isGpsActive.value = active
+        _gpsAccuracyMeters.value = accuracy
+    }
+
     // =========================================================================
     // USER ACTIONS & INTENT DISPATCHERS
     // =========================================================================
@@ -204,6 +241,16 @@ class ResQRouteViewModel(
         viewModelScope.launch {
             repository.updateAccessibilityProfile(updated)
             showToast("Mobility preferences synced.")
+        }
+    }
+
+    /**
+     * Ingests an inbound 2G emergency SMS broadcast payload into local SQLite storage.
+     */
+    fun ingestSmsBroadcast(body: String) {
+        viewModelScope.launch {
+            val result = repository.ingestSmsBroadcast(body)
+            showToast("2G SMS Ingested: $result")
         }
     }
 

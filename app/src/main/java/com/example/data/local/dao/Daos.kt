@@ -76,6 +76,9 @@ interface HazardDao {
 
     @Query("UPDATE hazards SET isClosed = :isClosed, severityLevel = :severity WHERE id = :id")
     suspend fun updateClosureStatus(id: String, isClosed: Boolean, severity: String)
+
+    @Query("UPDATE hazards SET waterDepthCm = :depthCm, isClosed = :isClosed, severityLevel = :severity WHERE id = :id")
+    suspend fun updateWaterDepth(id: String, depthCm: Int, isClosed: Boolean, severity: String)
 }
 
 /**

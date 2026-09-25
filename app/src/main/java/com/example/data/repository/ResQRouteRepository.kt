@@ -37,6 +37,8 @@ import com.example.data.model.VolunteerHome
 import com.example.data.model.CitizenReportOverlay
 import com.example.data.model.GeoPoint
 import com.example.data.model.HazardZoneOverlay
+import com.example.data.model.MapMarker
+import com.example.data.model.MarkerType
 import com.example.data.model.MapUiState
 import com.example.data.model.OsrmRouteData
 import com.example.data.remote.OsrmRoutingService
@@ -92,6 +94,42 @@ class ResQRouteRepository(
         VolunteerHome("Col. Deshmukh Villa", "320m away", 6, listOf("Solar Backup Battery", "Potable RO Water")),
         VolunteerHome("Anita & Ravi Sharma", "450m away", 3, listOf("Infant Supplies", "First Aid Kit", "Dry Floor"))
     )
+
+    // Critical Emergency Facilities (Hospitals, Triage, and Rescue Posts)
+    private val defaultCriticalFacilities = listOf(
+        MapMarker(
+            id = "fac-hosp-1",
+            title = "Bandra Municipal Emergency Hospital",
+            snippet = "24/7 Trauma & Oxygen Stockpile • 400m north",
+            position = GeoPoint(19.0620, 72.8315, 24.0, "Bandra Municipal Hospital"),
+            type = MarkerType.HOSPITAL,
+            tag = "HOSPITAL"
+        ),
+        MapMarker(
+            id = "fac-hosp-2",
+            title = "Lilavati Disaster Medical Post",
+            snippet = "Emergency Triage & Ambulances • 600m southwest",
+            position = GeoPoint(19.0515, 72.8290, 16.0, "Lilavati Medical Post"),
+            type = MarkerType.HOSPITAL,
+            tag = "HOSPITAL"
+        ),
+        MapMarker(
+            id = "fac-fire-1",
+            title = "Bandra Fire & Water Rescue Post",
+            snippet = "High-Water Inflatable Boats • VHF Ham Relay 145.500 MHz",
+            position = GeoPoint(19.0590, 72.8360, 28.0, "Bandra Rescue Station"),
+            type = MarkerType.FIRE_STATION,
+            tag = "FIRE_STATION"
+        )
+    )
+
+    // Network connectivity status (Online vs Zero-Internet Offline)
+    private val _isOnline = MutableStateFlow(true)
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+    fun setNetworkStatus(online: Boolean) {
+        _isOnline.value = online
+    }
 
     init {
         // Asynchronously populate seed records if local Room tables are empty
@@ -279,14 +317,34 @@ class ResQRouteRepository(
         )
     }
 
+    // Live user GPS coordinate telemetry
+    private val _userLocation = MutableStateFlow(GeoPoint(19.0760, 72.8777, 14.0, "Mumbai Control Zone"))
+    val userLocation: StateFlow<GeoPoint> = _userLocation.asStateFlow()
+
     /**
-     * Map UI State stream populated with live OSRM routes, hazard polygons, and report overlays.
+     * Map UI State stream populated with live/cached OSRM routes, hazard polygons, critical facilities, and authority detours.
      */
-    val mapUiState: Flow<MapUiState> = combine(currentHazard, currentShelter) { haz, sh ->
-        // Fetch or use cached OSRM route data
-        val routes = osrmService.getEvacuationRoutes()
-        val safeRoute = routes.first
-        val directRoute = routes.second
+    val mapUiState: Flow<MapUiState> = combine(currentHazard, currentShelter, _userLocation, _isOnline) { haz, sh, userLoc, online ->
+        // Fetch or use cached OSRM route data from current GPS origin
+        val targetShelterPoint = GeoPoint(19.0880, 72.8890, 32.0, sh.name)
+        val routes = osrmService.getEvacuationRoutes(
+            origin = userLoc,
+            shelter = targetShelterPoint
+        )
+        val rawSafeRoute = routes.first
+        val rawDirectRoute = routes.second
+
+        // Ensure offline labeling reflects truth: never pretend a fresh OSRM route was calculated if offline
+        val safeRoute = if (!online) {
+            rawSafeRoute.copy(source = "OSRM Cached Offline Corridor (Disaster Fallback)")
+        } else {
+            rawSafeRoute
+        }
+        val directRoute = if (!online) {
+            rawDirectRoute.copy(source = "OSRM Cached Offline Corridor (Disaster Fallback)")
+        } else {
+            rawDirectRoute
+        }
 
         val hazardOverlay = HazardZoneOverlay(
             id = haz.id,
@@ -313,16 +371,50 @@ class ResQRouteRepository(
             timestamp = haz.reportedAgo
         )
 
+        val roadClosuresList = if (haz.isClosed) {
+            listOf(
+                MapMarker(
+                    id = "closure-culvert-104",
+                    title = "ROAD CLOSED: Canal Road Culvert #104",
+                    snippet = "Impassable Flood Basin (${haz.waterDepthCm}cm) • Municipal Hard Barrier",
+                    position = GeoPoint(19.0578, 72.8305, 2.0, "Canal Road Culvert"),
+                    type = MarkerType.ROAD_CLOSURE,
+                    tag = "ROAD_CLOSED"
+                )
+            )
+        } else {
+            emptyList()
+        }
+
+        val isAuthorityActive = haz.isClosed || haz.severityLevel == "DETOUR_BROADCAST"
+
         MapUiState(
-            userLocation = GeoPoint(19.0545, 72.8285, 12.0, "Current Location"),
-            targetShelter = GeoPoint(19.0665, 72.8365, 32.0, sh.name),
+            userLocation = userLoc,
+            targetShelter = targetShelterPoint,
             activeRoute = safeRoute,
             alternativeRoute = directRoute,
             hazards = listOf(hazardOverlay),
             reports = listOf(reportOverlay),
-            isRealMapApiConnected = false,
-            mapProviderName = "OSRM v5.24.0 (OpenStreetMap)"
+            criticalFacilities = defaultCriticalFacilities,
+            roadClosures = roadClosuresList,
+            isAuthorityDetourActive = isAuthorityActive,
+            authorityDetourDecree = if (isAuthorityActive) {
+                "MCGM Municipal Decree: Canal Rd Impassable (${haz.waterDepthCm}cm) • Authorized Detour via Ridge Spine (+32m)"
+            } else {
+                ""
+            },
+            isOnline = online,
+            isOfflineFallback = !online || safeRoute.source.contains("Offline") || safeRoute.source.contains("Fallback"),
+            isRealMapApiConnected = true,
+            mapProviderName = if (online) "OSRM v5.24.0 (OpenStreetMap)" else "OSRM Cached Offline (Zero-Internet)"
         )
+    }
+
+    /**
+     * Updates user location from incoming GPS/Fused location sensor fixes.
+     */
+    fun updateUserLocation(point: GeoPoint) {
+        _userLocation.value = point
     }
 
     /**
@@ -351,6 +443,34 @@ class ResQRouteRepository(
      */
     suspend fun markHazardCleared(id: String) {
         hazardDao.updateClosureStatus(id, isClosed = false, severity = "CLEAR")
+    }
+
+    /**
+     * Alias for marking hazard cleared from citizen reports or SMS.
+     */
+    suspend fun reportHazardCleared(id: String) {
+        markHazardCleared(id)
+    }
+
+    /**
+     * Updates flood hazard depth and closure status from telemetry or SMS.
+     */
+    suspend fun updateHazardDepth(id: String, depthCm: Int, isClosed: Boolean, severity: String) {
+        hazardDao.updateWaterDepth(id, depthCm, isClosed, severity)
+    }
+
+    /**
+     * Updates shelter occupancy count from telemetry or SMS.
+     */
+    suspend fun updateShelterOccupancy(id: String, count: Int) {
+        shelterDao.updateOccupancy(id, count)
+    }
+
+    /**
+     * Ingests an incoming 2G emergency SMS payload into local SQLite storage.
+     */
+    suspend fun ingestSmsBroadcast(body: String): String {
+        return com.example.receiver.SmsBroadcastReceiver.parseAndApplyPayload(this, body)
     }
 
     /**
